@@ -1,3 +1,8 @@
+/*
+ * Generic helpers for smp ipi calls
+ *
+ * (C) Jens Axboe <jens.axboe@oracle.com> 2008
+ */
 #include <linux/irq_work.h>
 #include <linux/rcupdate.h>
 #include <linux/rculist.h>
@@ -191,6 +196,15 @@ static void flush_smp_call_function_queue(bool warn_cpu_offline)
 		csd->func(csd->info);
 		csd_unlock(csd);
 	}
+
+	/*
+	 * Handle irq works queued remotely by irq_work_queue_on().
+	 * Smp functions above are typically synchronous so they
+	 * better run first since some other CPUs may be busy waiting
+	 * for them.
+	 */
+	irq_work_run();
+}
 
 	irq_work_run();
 }
