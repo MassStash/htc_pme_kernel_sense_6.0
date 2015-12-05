@@ -2589,7 +2589,13 @@ retry:
 	if (nr_retries--)
 		goto retry;
 
-	if (gfp_mask & __GFP_NOFAIL)
+	/*
+	 * Unlike gloval-vm's OOM-kill, we're not in memory shortage
+	 * in system level. So, allow to go ahead dying process in addition to
+	 * MEMDIE process.
+	 */
+	if (unlikely(test_thread_flag_relaxed(TIF_MEMDIE)
+		     || fatal_signal_pending(current)))
 		goto bypass;
 
 	if (fatal_signal_pending(current))
