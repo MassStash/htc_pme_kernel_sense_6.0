@@ -1,0 +1,113 @@
+#!/bin/bash
+#This is a spin off script related to Chadouming's build and package script for Android.
+#Created by Evolutionmods & MysteryEmotionz
+
+#Config Section below is where you set your paths-
+
+#Kernel path
+kernelDir1="/home/zaitower/AndroidDev/htc_pme_kernel_sense_6.0" #( Example /home/user/path )
+kernelDir2="/home/zaitower/AndroidDev/htc_pme_kernel_sense_6.0" #( Example /home/user/path )
+kernelDir3="Path to kernel 3" #( Example /home/user/path )
+#Toolchain path
+toolchainDir="/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9" #( Example /home/user/path )
+#Path where you would like the kernel to be outputed
+exportDir="/home/zaitower/Dropbox/AndroidDev/Kernz/pme/out" #( Example /home/user/Desktop )
+#Change default to what ever you like
+kernel1name="Hypernova-pme-0.0.1-Sense"
+kernel2name="Hypernova-pme-0.x.x-Sense"
+kernel3name="Default-3"
+#Do not edit
+now=$(date +"%m-%d-%Y-%H-%M")
+threads=$(expr 2 + $(grep processor /proc/cpuinfo | wc -l))
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# End of Config Section-
+
+clear
+echo "                                Kernel-Builder                                 "
+echo "                                      By                                       "
+echo "                    Chadouming, Evolutionmods & MysteryEmotionz                "
+echo "-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"
+echo " Welcome back" $USER"                      $(date)"
+echo "-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"
+echo 
+echo
+echo " Please choose a muthafukin kernel "
+echo
+OPTIONS="$kernel1name $kernel2name $kernel3name"
+select opt in $OPTIONS; do
+    if [ "$opt" = "$kernel1name" ]; then
+     clear
+     echo "$kernel1name selected"
+     sleep 2
+     kernelName="$kernel1name"
+     cd $kernelDir1
+     break
+    elif [ "$opt" = "$kernel2name" ]; then
+     clear
+     echo "$kernel2name selected"
+     sleep 2
+     kernelName="$kernel2name"
+     cd $kernelDir2
+     break
+    elif [ "$opt" = "$kernel3name" ]; then
+     clear
+     echo "$kernel3name selected"
+     sleep 2
+     kernelName="$kernel3name"
+     cd $kernelDir3
+     break
+    else
+     clear
+     ./build
+    fi
+done
+
+#Setup proper path to rid missing gcc warning
+PATH=$PATH:/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin
+
+#Keep thangs sqeaky
+echo
+echo
+echo " Makin thangs squeaky clean "
+make clean
+make mrproper
+
+#xxx= Your config name
+echo
+echo
+echo " Run defconfig "
+make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin/aarch64- O=out hypernova_defconfig -j$threads
+
+#Change arm-eabi- to what you current toolchain uses default is gcc4.6 & gcc4.7 toolchains
+echo
+echo
+echo " Set to arm at 375, for about 20 to 40 minutes "
+make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin/aarch64- O=out -j$threads
+
+echo
+echo
+echo " Done compiling your kernel bitch "
+
+echo
+echo
+echo
+echo
+echo " Moved zImage "
+cp out/arch/arm64/boot/Image.gz-dtb /home/zaitower/Dropbox/AndroidDev/Kernz/pme/Hypernova-Sense-6.0/boot/hypernova.Image
+
+cd /home/zaitower/Dropbox/AndroidDev/Kernz/pme/Hypernova-Sense-6.0
+
+echo
+echo
+echo " I a make a da zip now, then move that ish to copy out dir "
+zip -r $kernelName-$now.zip * -x **~*
+mv $kernelName-$now.zip $exportDir
+#cd ..
+cd ~/AndroidDev/htc_pme_kernel_sense_6.0
+#rm -r zip2
+cd $DIR
+echo
+echo
+echo " Check $exportDir for $kernelName-$now.zip and repeat "
+sleep 5
