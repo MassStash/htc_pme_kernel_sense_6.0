@@ -9,7 +9,7 @@ kernelDir1="/home/zaitower/AndroidDev/htc_pme_kernel_sense_6.0" #( Example /home
 kernelDir2="/home/zaitower/AndroidDev/htc_pme_kernel_sense_6.0" #( Example /home/user/path )
 kernelDir3="Path to kernel 3" #( Example /home/user/path )
 #Toolchain path
-toolchainDir="/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9" #( Example /home/user/path )
+toolchainDir="/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3" #( Example /home/user/path )
 #Path where you would like the kernel to be outputed
 exportDir="/home/zaitower/Dropbox/AndroidDev/Kernz/pme/out" #( Example /home/user/Desktop )
 #Change default to what ever you like

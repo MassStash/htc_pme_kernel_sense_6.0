@@ -4,7 +4,7 @@ NUMCORES=`getconf _NPROCESSORS_ONLN`
 JSYNC=`echo $(( $NUMCORES * 2 ))`         
 
 #Setup proper path to rid missing gcc warning
-PATH=$PATH:/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin
+PATH=$PATH:/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin
 
 #Keep thangs sqeaky
 echo
@@ -23,11 +23,11 @@ mkdir -p out
 echo
 echo
 echo " Run defconfig "
-make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin/aarch64- O=out hypernova_defconfig -j$JSYNC
+make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin/aarch64- O=out hypernova_defconfig -j$JSYNC
 
 #Change arm-eabi- to what you current toolchain uses default is gcc4.6 & gcc4.7 toolchains
 echo
 echo
 echo " Set to arm at 375, for about 20 to 40 minutes "
-make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin/aarch64- O=out -j$JSYNC
+make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin/aarch64- O=out -j$JSYNC
 

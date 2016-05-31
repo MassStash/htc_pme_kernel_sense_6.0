@@ -9,7 +9,7 @@ kernelDir1="/home/zaitower/AndroidDev/htc_pme_kernel_sense_6.0" #( Example /home
 kernelDir2="/home/zaitower/AndroidDev/htc_pme_kernel_sense_6.0" #( Example /home/user/path )
 kernelDir3="Path to kernel 3" #( Example /home/user/path )
 #Toolchain path
-toolchainDir="/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9" #( Example /home/user/path )
+toolchainDir="/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3" #( Example /home/user/path )
 #Path where you would like the kernel to be outputed
 exportDir="/home/zaitower/Dropbox/AndroidDev/Kernz/pme/out" #( Example /home/user/Desktop )
 #Change default to what ever you like
@@ -64,7 +64,7 @@ select opt in $OPTIONS; do
 done
 
 #Setup proper path to rid missing gcc warning
-PATH=$PATH:/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin
+PATH=$PATH:/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin
 
 #Keep thangs sqeaky
 echo
@@ -77,13 +77,13 @@ make mrproper
 echo
 echo
 echo " Run defconfig "
-make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin/aarch64- O=out hypernova_defconfig -j$threads
+make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin/aarch64- O=out hypernova_defconfig -j$threads
 
 #Change arm-eabi- to what you current toolchain uses default is gcc4.6 & gcc4.7 toolchains
 echo
 echo
 echo " Set to arm at 375, for about 20 to 40 minutes "
-make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-gnu-4.9/bin/aarch64- O=out -j$threads
+make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin/aarch64- O=out -j$threads
 
 echo
 echo
