@@ -326,6 +326,10 @@ module_param_named(
 	sram_update_period_ms, fg_sram_update_period_ms, int, S_IRUSR | S_IWUSR
 );
 
+#ifdef CONFIG_HTC_BATT_PCN0002
+static bool g_is_ima_error_handling = false;
+#endif 
+
 struct fg_irq {
 	int			irq;
 	unsigned long		disabled;
@@ -1293,6 +1297,9 @@ static void fg_check_ima_error_handling(struct fg_chip *chip)
 	fg_enable_irqs(chip, false);
 	chip->use_last_cc_soc = true;
 	chip->ima_error_handling = true;
+#ifdef CONFIG_HTC_BATT_PCN0002
+	g_is_ima_error_handling = true;
+#endif 
 	schedule_delayed_work(&chip->ima_error_recovery_work,
 		msecs_to_jiffies(0));
 	mutex_unlock(&chip->ima_recovery_lock);
@@ -1836,7 +1843,7 @@ static int fg_backup_sram_registers(struct fg_chip *chip, bool save)
 
 #define SOC_FG_RESET	0xF3
 #define RESET_MASK	(BIT(7) | BIT(5))
-#define SOC_LOW_PWR_CFG 0xF6
+#define SOC_LOW_PWR_CFG 0xF5
 static int fg_reset(struct fg_chip *chip, bool reset)
 {
 	int rc;
@@ -2096,6 +2103,13 @@ static int get_system_soc(struct fg_chip *chip)
 	return soc;
 }
 #endif
+
+#ifdef CONFIG_HTC_BATT_PCN0002
+bool get_ima_error_status(void)
+{
+	return g_is_ima_error_handling;
+}
+#endif 
 
 #define EMPTY_CAPACITY		0
 #define DEFAULT_CAPACITY	50
@@ -3324,17 +3338,17 @@ static void fg_cap_learning_work(struct work_struct *work)
 		goto fail;
 	if (!fg_is_temperature_ok_for_learning(chip)) {
 		fg_cap_learning_stop(chip);
-#ifdef CONFIG_HTC_BATT
+#ifdef CONFIG_HTC_BATT_WA_PCN0001
 		if (chip->wa_flag & USE_CC_SOC_REG)
 			goto wa_use_cc_soc_reg;
-#endif
+#endif 
 		goto fail;
 	}
 
 	if (chip->wa_flag & USE_CC_SOC_REG) {
-#ifdef CONFIG_HTC_BATT
+#ifdef CONFIG_HTC_BATT_WA_PCN0001
 wa_use_cc_soc_reg:
-#endif
+#endif 
 		mutex_unlock(&chip->learning_data.learning_lock);
 		fg_relax(&chip->capacity_learning_wakeup_source);
 		return;
@@ -5298,13 +5312,16 @@ done:
 	pr_info("Battery SOC: %d, V: %duV\n", get_prop_capacity(chip),
 		fg_data[FG_DATA_VOLTAGE].value);
 	complete_all(&chip->fg_reset_done);
-#ifdef CONFIG_HTC_BATT
+#ifdef CONFIG_HTC_BATT_PCN0006
 		if (get_kernel_flag() & KERNEL_FLAG_ENABLE_BMS_CHARGER_LOG)
 			fg_debug_mask = 0xFF;
 		else
 			fg_debug_mask = 0x04;
+#endif 
+#ifdef CONFIG_HTC_BATT_PCN0014
 		htc_battery_probe_process(GAUGE_PROBE_DONE);
-#endif
+#endif 
+
 	return rc;
 no_profile:
 	if (chip->power_supply_registered)
@@ -6513,6 +6530,27 @@ static int fg_common_hw_init(struct fg_chip *chip)
 		}
 	}
 
+	
+	if (chip->cyc_ctr.en)
+		restore_cycle_counter(chip);
+
+
+	{
+		u8 val;
+		rc = fg_mem_read(chip, &val, RSLOW_CFG_REG, 1, RSLOW_CFG_OFFSET, 0);
+		if (rc) {
+			pr_err("unable to read rslow cfg: %d\n", rc);
+			return rc;
+		}
+
+		if (val & RSLOW_CFG_ON_VAL)
+			chip->rslow_comp.active = true;
+
+		if (fg_debug_mask & FG_STATUS)
+			pr_info("rslow_comp active is %sabled\n",
+				chip->rslow_comp.active ? "en" : "dis");
+	}
+
 	return 0;
 }
 
@@ -6560,9 +6598,6 @@ static int fg_8994_hw_init(struct fg_chip *chip)
 	data[0] = KI_COEFF_PRED_FULL_4_0_LSB;
 	data[1] = KI_COEFF_PRED_FULL_4_0_MSB;
 	fg_mem_write(chip, data, KI_COEFF_PRED_FULL_ADDR, 2, 2, 0);
-	
-	if (chip->cyc_ctr.en)
-		restore_cycle_counter(chip);
 
 	esr_value = ESR_DEFAULT_VALUE;
 	rc = fg_mem_write(chip, (u8 *)&esr_value, MAXRSCHANGE_REG, 8,
@@ -6885,6 +6920,9 @@ out:
 	schedule_delayed_work(&chip->check_sanity_work,
 			msecs_to_jiffies(1000));
 	chip->ima_error_handling = false;
+#ifdef CONFIG_HTC_BATT_PCN0002
+	g_is_ima_error_handling = false;
+#endif 
 	mutex_unlock(&chip->ima_recovery_lock);
 	fg_relax(&chip->fg_reset_wakeup_source);
 	pr_info("ima_error_recovery_work end\n");

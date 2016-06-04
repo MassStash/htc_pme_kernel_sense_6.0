@@ -352,7 +352,7 @@ static DEVICE_ATTR(ats, 0664, show_ats, store_ats);
 static DEVICE_ATTR(usb_disable, 0664,show_usb_disable_setting, store_usb_disable_setting); 
 static DEVICE_ATTR(usb_cable_connect, 0444, show_usb_cable_connect, NULL); 
 static DEVICE_ATTR(os_type, 0444, show_os_type, NULL); 
-static DEVICE_ATTR(usb_modem_enable, S_IWUSR,NULL, store_usb_modem_enable_setting);
+static DEVICE_ATTR(usb_modem_enable, S_IWUSR|S_IWGRP,NULL, store_usb_modem_enable_setting);
 static DEVICE_ATTR(speed, 0444, show_speed, NULL); 
 static DEVICE_ATTR(lock_speed, 0664, show_lock_speed, store_lock_speed); 
 static DEVICE_ATTR(lock_host_speed, S_IWUSR, NULL, store_lock_host_speed); 

@@ -413,6 +413,9 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	init_waitqueue_head(&host->wq);
 	INIT_DELAYED_WORK(&host->detect, mmc_rescan);
 	INIT_DELAYED_WORK(&host->stats_work, mmc_stats);
+
+	host->perf.cmdq_read_map = 0;
+	host->perf.cmdq_write_map = 0;
 #ifdef CONFIG_PM
 	host->pm_notify.notifier_call = mmc_pm_notify;
 #endif
@@ -453,11 +456,16 @@ static ssize_t store_enable(struct device *dev,
 	if (!host || kstrtoul(buf, 0, &value))
 		return -EINVAL;
 
-	mmc_claim_host(host);
-	if (!value && host->clk_scaling.enable) {
+	mmc_get_card(host->card);
+
+	if (!value) {
 		
 		mmc_exit_clk_scaling(host);
 		host->caps2 &= ~MMC_CAP2_CLK_SCALE;
+		host->clk_scaling.state = MMC_LOAD_HIGH;
+		
+		mmc_clk_update_freq(host, host->card->clk_scaling_highest,
+					host->clk_scaling.state);
 	} else if (value) {
 		
 		host->caps2 |= MMC_CAP2_CLK_SCALE;
@@ -466,7 +474,7 @@ static ssize_t store_enable(struct device *dev,
 		mmc_init_clk_scaling(host);
 	}
 
-	mmc_release_host(host);
+	mmc_put_card(host->card);
 
 	return count;
 }

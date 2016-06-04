@@ -20,8 +20,8 @@
 #include "msm8996-charger-pme_xc.dtsi"
 
 / {
-	model = "HTC Corporation. MSM8996v3 PME PVT";
-	qcom,msm-id = <402 0x30001>, <403 0x30001>, <405 0x30001>;
+	model = "HTC Corporation. MSM8996v3 PME WHL PVT";
+	qcom,msm-id = <406 0x30001>;
 	qcom,board-id = <0x80 0>;
 };
 
@@ -38,19 +38,12 @@
 };
 
 &spi_2 {
-	htc_mcu@0 {
-		mcu,need_notify_display = <1>;
-		mcu,need_compass_filter = <0>;
-	};
+        htc_mcu@0 {
+                mcu,need_notify_display = <0>;
+                mcu,need_compass_filter = <0>;
+        };
 };
 
-&pmi8994_gpios {
-        gpio@c300 {     /* GPIO 4, vddio_en, 1.8V boost  */
-                qcom,mode = <1>;
-                qcom,vin-sel = <2>;
-                qcom,src-sel = <0>;
-                qcom,invert = <1>;   /* need invert = 0 */
-                qcom,master-en = <1>;
-                status = "okay";
-        };
+&qusb_phy0 {
+		htc,usb-phy-always-on = <0>;
 };

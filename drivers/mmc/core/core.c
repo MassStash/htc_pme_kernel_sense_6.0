@@ -37,7 +37,6 @@
 #include <linux/blkdev.h>
 
 #include <trace/events/mmc.h>
-#define CREATE_TRACE_POINTS
 #include <trace/events/mmcio.h>
 
 #include <linux/mmc/card.h>
@@ -1053,6 +1052,9 @@ EXPORT_SYMBOL(mmc_suspend_clk_scaling);
 int mmc_resume_clk_scaling(struct mmc_host *host)
 {
 	int err = 0;
+	u32 max_clk_idx = 0;
+	u32 devfreq_max_clk = 0;
+	u32 devfreq_min_clk = 0;
 
 	if (!host) {
 		WARN(1, "bad host parameter\n");
@@ -1069,7 +1071,15 @@ int mmc_resume_clk_scaling(struct mmc_host *host)
 	}
 
 	atomic_set(&host->clk_scaling.devfreq_abort, 0);
-	host->clk_scaling.curr_freq = host->ios.clock;
+
+	max_clk_idx = host->clk_scaling.freq_table_sz - 1;
+	devfreq_max_clk = host->clk_scaling.freq_table[max_clk_idx];
+	devfreq_min_clk = host->clk_scaling.freq_table[0];
+
+	host->clk_scaling.curr_freq = devfreq_max_clk;
+	if (host->ios.clock < host->card->clk_scaling_highest)
+		host->clk_scaling.curr_freq = devfreq_min_clk;
+
 	host->clk_scaling.clk_scaling_in_progress = false;
 	host->clk_scaling.need_freq_change = false;
 
@@ -1159,7 +1169,7 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 				if (host->card && mmc_card_mmc(host->card))
 					trace_mmc_request_done(&host->class_dev,
 						cmd->opcode, mrq->cmd->arg,
-						mrq->data->blocks, ktime_to_ms(diff));
+						mrq->data->blocks, ktime_to_ms(diff), 0);
 				spin_lock_irqsave(&host->lock, flags);
 				if (mrq->data->flags == MMC_DATA_READ) {
 					host->perf.rbytes_drv +=
@@ -1248,6 +1258,9 @@ mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 			mrq->data->blocks, mrq->data->flags,
 			mrq->data->timeout_ns / 1000000,
 			mrq->data->timeout_clks);
+		if (host->card && mmc_card_mmc(host->card))
+			trace_mmc_req_start(&host->class_dev, mrq->cmd->opcode,
+				mrq->cmd->arg, mrq->data->blocks, 0);
 	}
 
 	if (mrq->stop) {
@@ -1432,6 +1445,8 @@ int mmc_set_auto_bkops(struct mmc_card *card, bool enable)
 			mmc_update_bkops_auto_off(&card->bkops.stats);
 		}
 		card->ext_csd.bkops_en = bkops_en;
+		pr_info("%s: %s: bkops_en: %d\n",
+			mmc_hostname(card->host), __func__, bkops_en);
 	}
 out:
 	return ret;
@@ -2849,6 +2864,7 @@ static int mmc_cmdq_do_erase(struct mmc_cmdq_req *cmdq_req,
 	unsigned long timeout;
 	unsigned int fr, nr;
 	int err;
+	ktime_t start, diff;
 
 	fr = from;
 	nr = to - from + 1;
@@ -2871,6 +2887,10 @@ static int mmc_cmdq_do_erase(struct mmc_cmdq_req *cmdq_req,
 	if (err)
 		goto out;
 
+	trace_mmc_req_start(&(card->host->class_dev), MMC_ERASE,
+			from, to - from + 1, 0);
+
+	start = ktime_get();
 	err = mmc_cmdq_send_erase_cmd(cmdq_req, card, MMC_ERASE,
 			arg, qty);
 	if (err)
@@ -2898,6 +2918,19 @@ static int mmc_cmdq_do_erase(struct mmc_cmdq_req *cmdq_req,
 		}
 	} while (!(cmd->resp[0] & R1_READY_FOR_DATA) ||
 		 (R1_CURRENT_STATE(cmd->resp[0]) == R1_STATE_PRG));
+
+	diff = ktime_sub(ktime_get(), start);
+	if (ktime_to_ms(diff) >= 3000)
+		pr_info("%s: erase(sector %u to %u) takes %lld ms\n",
+			mmc_hostname(card->host), from, to, ktime_to_ms(diff));
+
+	card->host->perf.erase_blks += (to - from + 1);
+	card->host->perf.erase_time =
+		ktime_add(card->host->perf.erase_time, diff);
+	card->host->perf.erase_rq++;
+
+	trace_mmc_request_done(&(card->host->class_dev), MMC_ERASE,
+			from, to - from + 1, ktime_to_ms(diff), 0);
 out:
 	trace_mmc_blk_erase_end(arg, fr, nr);
 	return err;
@@ -2955,7 +2988,7 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 
 	if (mmc_card_mmc(card)) {
 		trace_mmc_req_start(&(card->host->class_dev), MMC_ERASE,
-			from, to - from + 1);
+			from, to - from + 1, 0);
 	}
 
 	start = ktime_get();
@@ -3012,7 +3045,7 @@ static int mmc_do_erase(struct mmc_card *card, unsigned int from,
 
 	if (mmc_card_mmc(card)) {
 		trace_mmc_request_done(&(card->host->class_dev), MMC_ERASE,
-			from, to - from + 1, ktime_to_ms(diff));
+			from, to - from + 1, ktime_to_ms(diff), 0);
 	}
 out:
 

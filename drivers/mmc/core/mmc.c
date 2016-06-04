@@ -429,6 +429,8 @@ static void htc_mmc_show_cid_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		} else if (card->cid.manfid == CID_MANFID_MICRON) {
 			card->cid.fwrev = ext_csd[EXT_CSD_VENDOR_SPECIFIC_FIELDS_258];
 		}
+
+		card->cmdq_mode = card->ext_csd.cmdq_support;
 	}
 }
 
@@ -605,6 +607,10 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 
 		card->ext_csd.rel_param = ext_csd[EXT_CSD_WR_REL_PARAM];
 		card->ext_csd.rst_n_function = ext_csd[EXT_CSD_RST_N_FUNCTION];
+
+		if (!(card->ext_csd.rel_param &
+					EXT_CSD_WR_REL_PARAM_EN_RPMB_REL_WR))
+			card->ext_csd.rel_sectors = 0x1;
 
 		card->ext_csd.raw_rpmb_size_mult = ext_csd[EXT_CSD_RPMB_MULT];
 		if (ext_csd[EXT_CSD_RPMB_MULT] && mmc_host_cmd23(card->host)) {
@@ -810,6 +816,17 @@ MMC_DEV_ATTR(enhanced_rpmb_supported, "%#x\n",
 		card->ext_csd.enhanced_rpmb_supported);
 MMC_DEV_ATTR(rel_sectors, "%#x\n", card->ext_csd.rel_sectors);
 
+static ssize_t htc_mmc_cmdq_mode (struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	struct mmc_card *card = mmc_dev_to_card(dev);
+	int count = 0;
+	count = sprintf(buf, "%d\n", card->cmdq_mode);
+	return count;
+}
+DEVICE_ATTR(cmdq_mode, S_IRUGO, htc_mmc_cmdq_mode, NULL);
+
 static ssize_t htc_mmc_show_manf_name (struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -865,6 +882,7 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_enhanced_rpmb_supported.attr,
 	&dev_attr_rel_sectors.attr,
 	&dev_attr_manf_name.attr,
+	&dev_attr_cmdq_mode.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(mmc_std);
@@ -2225,6 +2243,15 @@ static int mmc_partial_init(struct mmc_host *host)
 	}
 	pr_debug("%s: %s: reading and comparing ext_csd successful\n",
 		mmc_hostname(host), __func__);
+
+	
+	if (!mmc_card_doing_auto_bkops(host->card)) {
+		err = mmc_set_auto_bkops(host->card, true);
+		if (err) {
+			pr_err("%s: %s: fail to enable auto bkops (%d)\n",
+				mmc_hostname(host), __func__, err);
+		}
+	}
 
 	if (card->ext_csd.cmdq_support && (card->host->caps2 &
 					   MMC_CAP2_CMD_QUEUE)) {

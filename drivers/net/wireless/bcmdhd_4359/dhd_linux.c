@@ -6564,7 +6564,7 @@ dhd_attach(osl_t *osh, struct dhd_bus *bus, uint bus_hdrlen)
 	dhd->pub.mimo_mode = CUSTOM_MIMO_MODE;
 	DHD_ERROR(("%s: MIMO MODE %d\n", __FUNCTION__, dhd->pub.mimo_mode));
 #endif 
-#endif
+#endif 
 	
 	if (dhd_dpc_prio >= 0) {
 		
