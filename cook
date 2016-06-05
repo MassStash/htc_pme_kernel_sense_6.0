@@ -13,8 +13,8 @@ toolchainDir="/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-
 #Path where you would like the kernel to be outputed
 exportDir="/home/zaitower/Dropbox/AndroidDev/Kernz/pme/out" #( Example /home/user/Desktop )
 #Change default to what ever you like
-kernel1name="Hypernova-pme-0.0.1-Sense"
-kernel2name="Hypernova-pme-0.x.x-Sense"
+kernel1name="Elementalx-Port-pme-0.0.5.1-Sense"
+kernel2name="Elementalx-Port-pme-0.x.x.x-Sense"
 kernel3name="Default-3"
 #Do not edit
 now=$(date +"%m-%d-%Y-%H-%M")
@@ -77,7 +77,7 @@ make mrproper
 echo
 echo
 echo " Run defconfig "
-make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin/aarch64- O=out hypernova_defconfig -j$threads
+make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin/aarch64- O=out elementalx_defconfig -j$threads
 
 #Change arm-eabi- to what you current toolchain uses default is gcc4.6 & gcc4.7 toolchains
 echo
@@ -94,9 +94,9 @@ echo
 echo
 echo
 echo " Moved zImage "
-cp out/arch/arm64/boot/Image.gz-dtb /home/zaitower/Dropbox/AndroidDev/Kernz/pme/Hypernova-Sense-6.0/boot/hypernova.Image
+cp out/arch/arm64/boot/Image.gz-dtb /home/zaitower/Dropbox/AndroidDev/Kernz/pme/ElementalX-Sense-6.0/boot/elex.Image
 
-cd /home/zaitower/Dropbox/AndroidDev/Kernz/pme/Hypernova-Sense-6.0
+cd /home/zaitower/Dropbox/AndroidDev/Kernz/pme/ElementalX-Sense-6.0
 
 echo
 echo
