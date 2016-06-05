@@ -36,11 +36,15 @@ CONFIG_BUILDTIME_EXTABLE_SORT=y
 CONFIG_INIT_ENV_ARG_LIMIT=32
 CONFIG_CROSS_COMPILE=""
 # CONFIG_COMPILE_TEST is not set
+<<<<<<< HEAD:arch/arm64/configs/hypernova_defconfig
 <<<<<<< HEAD:arch/arm64/configs/elementalx_defconfig
 CONFIG_LOCALVERSION="-ElementalX-HTC10-0.09-Sense"
 =======
 CONFIG_LOCALVERSION="-Hypernova-PME-0.0.1"
 >>>>>>> 8d408c1... Add cook scripts setup for pme; switch to hypernova branding.:arch/arm64/configs/hypernova_defconfig
+=======
+CONFIG_LOCALVERSION="-ElementalX-Port-PME-0.0.5.1"
+>>>>>>> 5074cd4... Switch cook scripts branding:arch/arm64/configs/elementalx_defconfig
 # CONFIG_LOCALVERSION_AUTO is not set
 CONFIG_DEFAULT_HOSTNAME="(none)"
 CONFIG_SWAP=y

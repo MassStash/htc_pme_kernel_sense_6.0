@@ -23,7 +23,7 @@ mkdir -p out
 echo
 echo
 echo " Run defconfig "
-make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin/aarch64- O=out hypernova_defconfig -j$JSYNC
+make ARCH=arm64 CROSS_COMPILE=/home/zaitower/AndroidDev/AAtoolchains/SaborMod/aarch64-linux-gnu-5.3/bin/aarch64- O=out elementalx_defconfig -j$JSYNC
 
 #Change arm-eabi- to what you current toolchain uses default is gcc4.6 & gcc4.7 toolchains
 echo
