@@ -4897,8 +4897,6 @@ static int __qseecom_set_clear_ce_key(struct qseecom_dev_handle *data,
 			pr_err("scm call to set QSEOS_PIPE_ENC key failed : %d\n",
 				ret);
 			ret = -EFAULT;
-			
-			BUG();
 		}
 		goto set_key_exit;
 	}

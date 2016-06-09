@@ -102,10 +102,8 @@
 
 /{
 	mtp_batterydata: qcom,battery-data {
-        /* CONFIG_HTC_BATT_PCN0003++ */
 		#include "batterydata-pme-id1.dtsi"
 		#include "batterydata-pme-id2.dtsi"
-        /* CONFIG_HTC_BATT_PCN0003-- */
 	};
 };
 

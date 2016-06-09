@@ -80,6 +80,7 @@ struct ohio_data {
 	struct mutex lock;
 	struct mutex drole_lock;
 	struct wake_lock ohio_lock;	
+	int fake_irq_counter;
 	int cbl_det_irq;
 	int DFP_mode; 
 	enum port_mode pmode;
@@ -269,6 +270,8 @@ int ohio_get_data_value(int data_member)
 			return ohio->emarker_flag;
 		case 7: 
 			return ohio->non_standard_flag;
+		case 8: 
+			return downstream_pd_cap;
 		default:
 			return -1;
 	}
@@ -435,20 +438,9 @@ int check_chip_type(void)
 			return chip_type;
 		}
 
-		if ((temp & R_EE_DEBUG_STATE) == OTP_MODE) {
-			ret = ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, DEVICE_VERSION, (unchar *)(&temp));
-			if (ret < 0) {
-				pr_err("%s : cannot distinguish OTP_AB or OTP_AD\n", __func__);
-				return chip_type;
-			}
-
-			if (temp == 0xAB)
-				chip_type = OTP_AB;
-			else if (temp == 0xAD)
-				chip_type = OTP_AD;
-			else
-				chip_type = UNKNOWN_CHIP_TYPE;
-		} else
+		if ((temp & R_EE_DEBUG_STATE) == OTP_MODE)
+			chip_type = OTP;
+		else
 			chip_type = EEPROM;
 	}
 
@@ -463,12 +455,9 @@ enum ANX7418_fw_type check_usbc_fw_type(const struct firmware *fw)
 
 	if ((fw->data[EEPROM_FW_CHIPID_HIGH] == 0x74) && (fw->data[EEPROM_FW_CHIPID_LOW] == 0x18)) {
 		fw_type = EEPROM_FW;
-	} else if ((fw->data[OTP_FW_CHIPID_HIGH] == 0x74) && (fw->data[OTP_FW_CHIPID_LOW] == 0x18)
-				&& (fw->data[OTP_FW_VERSION_OFFSET] >= 0x10) && (fw->data[OTP_FW_VERSION_OFFSET] < 0x20)) {
-		fw_type = OTP_AB_FW;
-	} else if ((fw->data[OTP_FW_CHIPID_HIGH] == 0x74) && (fw->data[OTP_FW_CHIPID_LOW] == 0x18)
-			&& (fw->data[OTP_FW_VERSION_OFFSET] >= 0x20) && (fw->data[OTP_FW_VERSION_OFFSET] < 0x30))
-		fw_type = OTP_AD_FW;
+	} else if ((fw->data[OTP_FW_CHIPID_HIGH] == 0x74) && (fw->data[OTP_FW_CHIPID_LOW] == 0x18)) {
+		fw_type = OTP_FW;
+	}
 
 	pr_debug("%s : ANX7418 fw type = %s\n", __func__, fw_type_to_string(fw_type));
 	return fw_type;
@@ -537,7 +526,7 @@ void ohio_hardware_poweron(void)
 				pr_debug("%s : EEPROM load retry.\n", __func__);
 				continue;
 			}
-		} else if (chip_type == OTP_AB || chip_type == OTP_AD) {
+		} else if (chip_type == OTP) {
 			break;
 		} else {
 			pr_err("%s : ANX7418 cannot read chip type\n", __func__);
@@ -814,6 +803,7 @@ void cable_disconnect(void *data)
 	ohio_hardware_disable_vconn();
 	
 	wake_unlock(&ohio->ohio_lock); 
+	
 }
 
 void update_pwr_sink_caps(void){
@@ -893,11 +883,28 @@ static unsigned char confirmed_cable_det(void *data)
 static irqreturn_t ohio_cbl_det_isr(int irq, void *data)
 {
 	struct ohio_data *ohio = data;
-	if (!delayed_work_pending(&ohio->work)) {
-		queue_delayed_work(ohio->workqueue, &ohio->work, 2);
-		printk("%s(%d): delay_work pending(%d)\n", __func__, __LINE__, delayed_work_pending(&ohio->work));
+	bool ret = 0;
+	if (!atomic_read(&cbl_det_irq_status)) {
+		disable_irq_nosync(ohio->cbl_det_irq);
+		atomic_set(&cbl_det_irq_status, 1);
+		ret = queue_delayed_work(ohio->workqueue, &ohio->work, 0);
+		
+		if (!ret) {
+			flush_workqueue(ohio->workqueue);
+			queue_delayed_work(ohio->workqueue, &ohio->work, 0);
+		}
 	} else
-		printk("%s(%d): delay_work pending(%d)\n", __func__, __LINE__, delayed_work_pending(&ohio->work));
+		pr_err("%s: skip unbalance cbl_det irq\n", __func__);
+#if 0
+	u8 val;
+	pr_info("cbl_det_isr\n");
+	val=gpio_get_value(ohio->pdata->gpio_cbl_det);
+	if (val == DONGLE_CABLE_INSERT)
+		queue_delayed_work(ohio->workqueue, &ohio->work, 0);
+	else {
+		cable_disconnect(ohio);
+	}
+#endif
 	return IRQ_HANDLED;
 }
 
@@ -1001,6 +1008,16 @@ void dfp_downgrade_usb20(void)
 }
 
 extern int usb_lock_speed;
+void usb_downgrade_func(void)
+{
+	ohio_debug_dump();
+	
+	if (ohio_get_data_value(OHIO_PMODE) == MODE_DFP && usb_lock_host_speed)
+		dfp_downgrade_usb20();
+	if (ohio_get_data_value(OHIO_PMODE) == MODE_UFP && usb_lock_speed)
+		ufp_switch_usb_speed(0);
+}
+
 void ohio_main_process(void)
 {
 	
@@ -1116,16 +1133,6 @@ exit:
 	pr_debug("%s: exit\n", __func__);
 }
 
-void usb_downgrade_func(void)
-{
-	ohio_debug_dump();
-	
-	if (ohio_get_data_value(OHIO_PMODE) == MODE_DFP && usb_lock_host_speed)
-		dfp_downgrade_usb20();
-	if (ohio_get_data_value(OHIO_PMODE) == MODE_UFP && usb_lock_speed)
-		ufp_switch_usb_speed(0);
-}
-
 extern int qpnp_boost_status(u8 *value);
 extern int qpnp_boost_int_status(u8 *value);
 static irqreturn_t ohio_intr_comm_isr(int irq, void *data)
@@ -1186,7 +1193,10 @@ static void drole_work_func(struct work_struct *work)
 		pr_info("data role change %d\n", (int)td->drole_on);
 		
 		
-
+		if (cable_connected == 0) {
+			pr_err("%s: cable out, should not do anything with event irq\n", __func__);
+			return;
+		}
 		mutex_lock(&td->drole_lock);
 		if (td->drole_on) {
 			dwc3_pd_drswap(DR_HOST);
@@ -1210,20 +1220,44 @@ static void ohio_work_func(struct work_struct *work)
 {
 	struct ohio_data *td = container_of(work, struct ohio_data,
 					       work.work);
-	printk("%s(%d): delay_work pending(%d)\n", __func__, __LINE__, delayed_work_pending(&td->work));
+	uint fake_irq_triggerred = 0;
+	u8 val;
 
 	cable_connected = confirmed_cable_det(td);
 	pr_info("%s : detect cable insertion/remove, cable_connected = %d\n",
 				__func__, cable_connected);
 	if (cable_connected == DONGLE_CABLE_INSERT) {
 		
+		td->fake_irq_counter = 0;
 		mutex_lock(&td->lock);
 		ohio_main_process();
 		mutex_unlock(&td->lock);
 	} else if (cable_connected == DONGLE_CABLE_REMOVE) {
+		td->fake_irq_counter++;
 		mutex_lock(&td->drole_lock);
 		cable_disconnect(td);
 		mutex_unlock(&td->drole_lock);
+	}
+	if (td->fake_irq_counter > MAX_DEB_FAKE_IRQ_COUNT) {
+		td->fake_irq_counter = 0;
+		fake_irq_triggerred = 1;
+	}
+	if (fake_irq_triggerred) {
+		queue_delayed_work(td->workqueue, &td->debounce_work, 500);
+		pr_info("%s %s : Disable cbl_det IRQ due to triggered fake interrupt\n",
+			LOG_TAG, __func__);
+	} else {
+		if (atomic_read(&cbl_det_irq_status)) {
+			atomic_set(&cbl_det_irq_status, 0);
+			enable_irq(td->cbl_det_irq);
+			pr_info("%s: Enable cbl_det IRQ\n", __func__);
+			mdelay(1);
+			if ((cable_connected != DONGLE_CABLE_REMOVE) &&
+				((val = gpio_get_value(td->pdata->gpio_cbl_det)) == DONGLE_CABLE_REMOVE)) {
+				pr_info("%s: cable might be removed. do disconnect\n", __func__);
+				cable_disconnect(td);
+			}
+		}
 	}
 }
 
@@ -1244,8 +1278,60 @@ static void ohio_comm_isr_work_func(struct work_struct *work)
 
 static void ohio_debounce_work_func(struct work_struct *work)
 {
+	struct ohio_data *td = container_of(work, struct ohio_data,
+					       debounce_work.work);
+	if (atomic_read(&cbl_det_irq_status)) {
+		atomic_set(&cbl_det_irq_status, 0);
+		enable_irq(td->cbl_det_irq);
+	}
 	pr_info("%s : Enable cbl_det IRQ due to fake interrupt\n", __func__);
 }
+
+int workable_charging_cable(void)
+{
+	u8 val;
+	int ret;
+	struct ohio_data *ohio = NULL;
+
+	if(ohio_client)
+		ohio = i2c_get_clientdata(ohio_client);
+	else
+		return -ENODEV;
+
+	if (atomic_read(&ohio_power_status) == 1) {
+		ret = ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, NEW_CC_STATUS, &val);
+		if (ret < 0) {
+			pr_err("%s: i2c fail\n", __func__);
+			return 2;
+		}
+		else {
+			pr_info("%s: cc_status = 0x%02X\n", __func__, val);
+			switch (val) {
+				case 0x00:
+					pr_err("%s: cable out\n", __func__);
+					return -1;
+				case 0x04:
+				case 0x40:
+				case 0x08:
+				case 0x80:
+					pr_info("%s: workable cable\n", __func__);
+					return 1;
+				case 0x0c:
+				case 0xc0:
+					pr_err("%s: illegal cable\n", __func__);
+					return 0;
+				default:
+					pr_err("%s: unknown status\n", __func__);
+					return -1;
+			}
+		}
+	}
+	else {
+		pr_info("%s: power not ready\n", __func__);
+		return 2;
+	}
+}
+EXPORT_SYMBOL(workable_charging_cable);
 
 #ifdef CONFIG_OF
 int __maybe_unused ohio_regulator_configure(struct device *dev,
@@ -1446,9 +1532,9 @@ static ssize_t fw_update_store(struct device *pdev, struct device_attribute *att
 
 			release_firmware(fw);
 			break;
-		case OTP_AB:
+		case OTP:
 			
-			ret = request_firmware(&fw, ANX7418FW_OTP_AB, pdev);
+			ret = request_firmware(&fw, ANX7418FW_OTP, pdev);
 			if (ret || fw == NULL) {
 				pr_err("firmware request failed (ret = %d, fwptr = %p)", ret, fw);
 				goto exit;
@@ -1456,27 +1542,11 @@ static ssize_t fw_update_store(struct device *pdev, struct device_attribute *att
 
 			fw_type = check_usbc_fw_type(fw);
 
-			if ((fw_type == OTP_AB_FW) && (check_usbc_fw_version(fw, OTP_AB) == 1))
+			if ((fw_type == OTP_FW) && (check_usbc_fw_version(fw, OTP) == 1))
 				update_firmware_otp(NULL, (struct firmware *)fw);
 
 			release_firmware(fw);
 			break;
-		case OTP_AD:
-			
-			ret = request_firmware(&fw, ANX7418FW_OTP_AD, pdev);
-			if (ret || fw == NULL) {
-				pr_err("firmware request failed (ret = %d, fwptr = %p)", ret, fw);
-				goto exit;
-			}
-
-			fw_type = check_usbc_fw_type(fw);
-
-			if ((fw_type == OTP_AD_FW) && (check_usbc_fw_version(fw, OTP_AD) == 1))
-				update_firmware_otp(NULL, (struct firmware *)fw);
-
-			release_firmware(fw);
-			break;
-
 		default:
 			pr_err("%s %s : ANX7418 cannot read chip type\n", LOG_TAG, __func__);
 			break;
@@ -1974,7 +2044,7 @@ static int check_usbc_fw_version(const struct firmware *fw, int fw_type)
 
 	if (fw_type == EEPROM) {
 		updating_version = fw->data[EEPROM_FW_VERSION_OFFSET];
-	} else if (fw_type == OTP_AB || fw_type == OTP_AD) {
+	} else if (fw_type == OTP) {
 		updating_version = fw->data[OTP_FW_VERSION_OFFSET];
 	} else {
 		pr_err("%s %s : cannot get updating firmware version\n", LOG_TAG, __func__);
@@ -1991,30 +2061,14 @@ static int check_usbc_fw_version(const struct firmware *fw, int fw_type)
 	pr_info("%s %s : curr_version= %02x , updating_version= %02x\n",
 			LOG_TAG, __func__, curr_version, updating_version);
 
-	if (fw_type == OTP_AB || fw_type == EEPROM) {
-		if ((curr_version == 0x16) && updating_version >= 0x10 && updating_version != 0x16) {
-			
-			pr_info("%s %s : Need Update\n", LOG_TAG, __func__);
-			return 1;
-		} else if (updating_version > curr_version && updating_version != 0x16) {
-			
-			pr_info("%s %s : Need Update\n", LOG_TAG, __func__);
-			return 1;
-		} else {
-			pr_info("%s %s : Update Bypass\n", LOG_TAG, __func__);
-			return 0; 
-		}
-	} else if (fw_type == OTP_AD) {
-		if ((curr_version == 0xD0) && updating_version >= 0x20 && updating_version != 0xD0) {
-			pr_info("%s %s : Need Update\n", LOG_TAG, __func__);
-			return 1;
-		} else if (updating_version > curr_version && updating_version != 0xD0) {
-			pr_info("%s %s : Need Update\n", LOG_TAG, __func__);
-			return 1;
-		} else {
-			pr_info("%s %s : Update Bypass\n", LOG_TAG, __func__);
-			return 0; 
-		}
+	if ((curr_version == 0x16) && updating_version >= 0x10 && updating_version != 0x16) {
+		
+		pr_info("%s %s : Need Update\n", LOG_TAG, __func__);
+		return 1;
+	} else if (updating_version > curr_version && updating_version != 0x16) {
+		
+		pr_info("%s %s : Need Update\n", LOG_TAG, __func__);
+		return 1;
 	} else {
 		pr_info("%s %s : Update Bypass\n", LOG_TAG, __func__);
 		return 0; 
@@ -2071,26 +2125,13 @@ int analogix_usbc_fw_update(struct usb_typec_fwu_notifier *notifier, struct firm
 			}
 			ret = update_firmware(notifier, fw);
 			break;
-		case OTP_AB:
-			if (fw_type != OTP_AB_FW) {
+		case OTP:
+			if (fw_type != OTP_FW) {
 				pr_err("%s %s : ANX7418 chip type not match to the firmware\n", LOG_TAG, __func__);
 				ret = 1; 
 				break;
 			}
-			ret = check_usbc_fw_version(fw, OTP_AB);
-			if (ret == 0) {
-				ret = 1;
-				goto exit;
-			}
-			ret = update_firmware_otp(notifier, fw);
-			break;
-		case OTP_AD:
-			if (fw_type != OTP_AD_FW) {
-				pr_err("%s %s : ANX7418 chip type not match to the firmware\n", LOG_TAG, __func__);
-				ret = 1; 
-				break;
-			}
-			ret = check_usbc_fw_version(fw, OTP_AD);
+			ret = check_usbc_fw_version(fw, OTP);
 			if (ret == 0) {
 				ret = 1;
 				goto exit;
@@ -2218,6 +2259,7 @@ static int ohio_i2c_probe(struct i2c_client *client,
 	ohio_client->addr = (OHIO_SLAVE_I2C_ADDR >> 1);
 
 	atomic_set(&ohio_power_status, 0);
+	atomic_set(&cbl_det_irq_status, 0);
 
 	mutex_init(&ohio->lock);
 	mutex_init(&ohio->drole_lock);
@@ -2349,9 +2391,6 @@ static int ohio_i2c_probe(struct i2c_client *client,
 	}
 
 	ohio->fw_version = 0xFF;
-	ohio->prole = UNKNOWN_POWER_ROLE;
-	ohio->drole = UNKNOWN_DATA_ROLE;
-	ohio->pmode = MODE_UNKNOWN;
 
 	pr_info("%s successfully\n", __func__);
 	goto exit;

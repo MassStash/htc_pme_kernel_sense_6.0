@@ -37,7 +37,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/gpio.h>
 #include <linux/wakelock.h>
-
+#include <linux/laser.h>
 #include <linux/of_gpio.h>
 
 #include "inc/stmvl53l0.h"
@@ -78,7 +78,7 @@
 #define LASER_STMVL53L0_HW_WORKAROUND 1
 #if LASER_STMVL53L0_HW_WORKAROUND
 u8 g_hw_workaround = false;
-
+static int probe_success = 0;
 typedef struct {
 	const char *header;
 	int lower_limit;
@@ -94,8 +94,8 @@ static TARGET_HW_WORKAROUND hw_workaround_table [] = {
         {"HT62S01",	5,	38	},
         {"HT62T01",	1,	16	},
         {"HT63201",	1,	421	},
-        {"HT63301",	1,	31	},
-        {"HT63401",	1,	111	},
+	{"HT63301",	1,	31	},
+	{"HT63401",	1,	111	},
 };
 #endif
 
@@ -291,6 +291,79 @@ int Laser_RegReadMulti(u8 addr, u8 *data, uint32_t count)
 	return 0;
 }
 
+int Laser_poweron_by_camera(void)
+{
+	int ret = 0;
+	VL53L0_Error Status = VL53L0_ERROR_NONE;
+	u32 SpadCount = 0;
+	u8 IsAperture = 0;
+
+	I("%s +\n", __func__);
+	if (!probe_success) {
+		I("%s return due to probe not ready\n", __func__);
+		return -1;
+	}
+
+	ret = regulator_enable(laser_data->camio_1v8);
+	if (ret) {
+		E("%s: Failed to enable CAMIO_1v8\n", __func__);
+		return ret;
+	}
+
+	ret = gpio_direction_output(laser_data->power_gpio, 1);
+	if (ret) {
+		E("%s: Failed to pull up power_gpio\n", __func__);
+		return ret;
+	}
+	msleep(1);
+
+	ret = gpio_direction_output(laser_data->pwdn_gpio, 1);
+	if (ret) {
+		E("%s: Failed to pull up pwdn_gpio\n", __func__);
+		return ret;
+	}
+	msleep(2);
+
+	
+	Status = VL53L0_DataInit(&MyDevice);
+	Status |= VL53L0_StaticInit(&MyDevice);
+	if (Status != VL53L0_ERROR_NONE) {
+		E("%s: Initialization failed with Status = %d\n", __func__, Status);
+		return Status;
+	}
+
+#if LASER_STMVL53L0_HW_WORKAROUND
+	if(g_hw_workaround) {
+		I("%s: API#1.1.12\n", __func__);
+	} else {
+		I("%s: API#1.1.13\n", __func__);
+#endif
+		if (g_refSpadCount == 0 && g_isApertureSpads == 0) {
+			
+			Status = VL53L0_PerformRefSpadManagement(&MyDevice, &SpadCount, &IsAperture);
+			if (Status != VL53L0_ERROR_NONE) {
+				E("%s: VL53L0_PerformRefSpadManagement failed with Status = %d\n", __func__, Status);
+				return Status;
+			}
+			I("%s: Set SpadCount = %d and IsAperture = %d\n", __func__, SpadCount, IsAperture);
+			
+			g_refSpadCount = SpadCount;
+			g_isApertureSpads = IsAperture;
+		} else {
+			I("%s: Set refSpadCount = %d and isApertureSpads = %d\n", __func__, g_refSpadCount, g_isApertureSpads);
+			Status = VL53L0_SetReferenceSpads(&MyDevice, g_refSpadCount, g_isApertureSpads);
+			if (Status != VL53L0_ERROR_NONE) {
+				E("%s: VL53L0_SetReferenceSpads failed with Status = %d\n", __func__, Status);
+				return Status;
+			}
+		}
+#if LASER_STMVL53L0_HW_WORKAROUND
+	}
+#endif
+	laser_data->laser_power = 1;
+	I("%s -\n", __func__);
+	return ret;
+}
 static int Laser_poweron(void)
 {
 	int ret = 0;
@@ -410,7 +483,38 @@ static int Laser_poweron_without_init(void)
 
 	return ret;
 }
+int Laser_poweroff_by_camera(void)
+{
+	int ret = 0;
+	I("%s +\n", __func__);
+	if (!probe_success) {
+		I("%s return due to probe not ready\n", __func__);
+		return -1;
+	}
 
+	ret = gpio_direction_output(laser_data->power_gpio, 0);
+	if (ret) {
+		E("%s: Failed to pull down power_gpio\n", __func__);
+		return ret;
+	}
+	udelay(500);
+
+	ret = gpio_direction_output(laser_data->pwdn_gpio, 0);
+	if (ret) {
+		E("%s: Failed to pull down pwdn_gpio\n", __func__);
+		return ret;
+	}
+
+	ret = regulator_disable(laser_data->camio_1v8);
+	if (ret) {
+		E("%s: Failed to disable CAMIO_1v8\n", __func__);
+		return ret;
+	}
+
+	laser_data->laser_power = 0;
+	I("%s -\n", __func__);
+	return ret;
+}
 static int Laser_poweroff(void)
 {
 	int ret = 0;
@@ -624,12 +728,13 @@ static void report_laser(struct laser_device_data *laser_data)
 static int debounce_counter = 0;
 static int RangeStatus_determination(int RangeStatus) {
 	if(RangeStatus == 3) {
+		debounce_counter++;
 		if(debounce_counter >= 10) {
+			if(debounce_counter % 30 == 0)
+				I("debounce_counter sustained %d\n", debounce_counter);
 			return 3;
-		} else {
-			debounce_counter++;
+		} else
 			return 0;
-		}
 	} else {
 		debounce_counter = 0;
 		return RangeStatus;
@@ -651,7 +756,6 @@ static irqreturn_t laser_irq_handler(int irq, void *handle)
 			data[2] = RangingMeasurementData.SignalRateRtnMegaCps;
 			data[3] = RangingMeasurementData.AmbientRateRtnMegaCps;
 			data[4] = RangeStatus_determination(RangingMeasurementData.RangeStatus);
-
 
 			laser_send_event(laser_data, LASER_RANGE_DATA, data, 0);
 
@@ -1763,7 +1867,7 @@ static int Laser_probe(struct i2c_client *client, const struct i2c_device_id *id
 		}
 	}
 	err = Laser_poweroff();
-
+	probe_success = 1;
 	I("%s: Successful\n", __func__);
 
 	return 0;

@@ -38,8 +38,7 @@
 #define LOG_TAG "Ohio"
 
 #define ANX7418FW "usb_typec.img"
-#define ANX7418FW_OTP_AB "usb_typec_otp.img"
-#define ANX7418FW_OTP_AD "usb_typec_otp_ad.img"
+#define ANX7418FW_OTP "usb_typec_otp.img"
 
 #define DEVICE_ID_L 0x02
 #define DEVICE_ID_H 0x03
@@ -159,15 +158,13 @@ unsigned char ECC_table[] =
 
 enum ANX7418_chip_type {
 	EEPROM,
-	OTP_AB,
-	OTP_AD,
+	OTP,
 	UNKNOWN_CHIP_TYPE,
 };
 
 enum ANX7418_fw_type {
 	EEPROM_FW,
-	OTP_AB_FW,
-	OTP_AD_FW,
+	OTP_FW,
 	UNKNOWN_FW_TYPE,
 };
 
@@ -175,8 +172,7 @@ static const char *chip_type_to_string(enum ANX7418_chip_type type)
 {
 	switch (type) {
 		case EEPROM:				return "EEPROM";
-		case OTP_AB:				return "OTP AB";
-		case OTP_AD:				return "OTP AD";
+		case OTP:					return "OTP";
 		case UNKNOWN_CHIP_TYPE:		return "UNKNOWN";
 		default:					return "INVALID_TYPE";
 	}
@@ -186,8 +182,7 @@ static const char *fw_type_to_string(enum ANX7418_fw_type type)
 {
 	switch (type) {
 		case EEPROM_FW:				return "EEPROM";
-		case OTP_AB_FW:				return "OTP AB";
-		case OTP_AD_FW:				return "OTP AD";
+		case OTP_FW:				return "OTP";
 		case UNKNOWN_FW_TYPE:		return "UNKNOWN";
 		default:					return "INVALID_TYPE";
 	}

@@ -3226,7 +3226,7 @@ int wl_android_priv_cmd(struct net_device *net, struct ifreq *ifr, int cmd)
 		if (dhdp->op_mode & DHD_FLAG_HOSTAP_MODE)
 			bytes_written = wl_android_set_ap_mac_list(net, command + PROFILE_OFFSET);
 		else
-			DHD_ERROR(("Not in AP mode skip this %s cmd\n", CMD_AP_MAC_LIST_SET));
+			DHD_ERROR(("Not in AP mode skip this %s cmmd\n", CMD_AP_MAC_LIST_SET));
 	}
 	else if (strnicmp(command, CMD_LTECOEX, strlen(CMD_LTECOEX)) == 0) {
 		bytes_written = wl_android_ltecoex_mode(net, command, priv_cmd.total_len);
@@ -3914,6 +3914,9 @@ void wlan_lock_irq_affinity(struct net_device *dev, int set)
 	dhd_irq_affinity_enable(dev, set);
 #ifdef SET_RPS_CPUS
 	dhd_rps_cpus_enable(dev, set);
+#endif
+#ifdef CUSTOMER_HW_ONE
+	dhd_tcpack_suppress_dynamic_enable(dev, set);
 #endif
 }
 

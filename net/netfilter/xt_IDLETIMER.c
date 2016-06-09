@@ -49,6 +49,7 @@
 #include <linux/notifier.h>
 #include <net/net_namespace.h>
 #include <net/sock.h>
+#include <net/htc_net_debug.h>
 
 struct idletimer_tg_attr {
 	struct attribute attr;
@@ -75,7 +76,6 @@ struct idletimer_tg {
 	bool send_nl_msg;
 	bool active;
 	uid_t uid;
-	bool suspend_time_valid;
 };
 
 static LIST_HEAD(idletimer_tg_list);
@@ -83,6 +83,8 @@ static DEFINE_MUTEX(list_mutex);
 static DEFINE_SPINLOCK(timestamp_lock);
 
 static struct kobject *idletimer_tg_kobj;
+struct net_timestamp debug_ts;
+static int debug_fp;
 
 static bool check_for_delayed_trigger(struct idletimer_tg *timer,
 		struct timespec *ts)
@@ -233,6 +235,7 @@ static void idletimer_tg_expired(unsigned long data)
 	spin_unlock_bh(&timestamp_lock);
 }
 
+
 static int idletimer_resume(struct notifier_block *notifier,
 		unsigned long pm_event, void *unused)
 {
@@ -244,17 +247,14 @@ static int idletimer_resume(struct notifier_block *notifier,
 		return NOTIFY_DONE;
 	switch (pm_event) {
 	case PM_SUSPEND_PREPARE:
+		debug_fp = 1;
 		get_monotonic_boottime(&timer->last_suspend_time);
-		timer->suspend_time_valid = true;
 		break;
 	case PM_POST_SUSPEND:
-		if (!timer->suspend_time_valid)
-			break;
-		timer->suspend_time_valid = false;
-
 		spin_lock_bh(&timestamp_lock);
 		if (!timer->active) {
 			spin_unlock_bh(&timestamp_lock);
+			debug_fp = 0;
 			break;
 		}
 		if (time_after(timer->timer.expires, now)) {
@@ -273,6 +273,7 @@ static int idletimer_resume(struct notifier_block *notifier,
 			}
 		}
 		spin_unlock_bh(&timestamp_lock);
+		debug_fp = 0;
 		break;
 	default:
 		break;
@@ -284,7 +285,7 @@ static int idletimer_tg_create(struct idletimer_tg_info *info)
 {
 	int ret;
 
-	info->timer = kzalloc(sizeof(*info->timer), GFP_KERNEL);
+	info->timer = kmalloc(sizeof(*info->timer), GFP_KERNEL);
 	if (!info->timer) {
 		ret = -ENOMEM;
 		goto out;
@@ -317,7 +318,9 @@ static int idletimer_tg_create(struct idletimer_tg_info *info)
 	info->timer->delayed_timer_trigger.tv_nsec = 0;
 	info->timer->work_pending = false;
 	info->timer->uid = 0;
+	debug_fp = 2;
 	get_monotonic_boottime(&info->timer->last_modified_timer);
+    get_monotonic_boottime(&info->timer->last_suspend_time);
 
 	info->timer->pm_nb.notifier_call = idletimer_resume;
 	ret = register_pm_notifier(&info->timer->pm_nb);
@@ -457,6 +460,7 @@ static void idletimer_tg_destroy(const struct xt_tgdtor_param *par)
 		cancel_work_sync(&info->timer->work);
 		sysfs_remove_file(idletimer_tg_kobj, &info->timer->attr.attr);
 		unregister_pm_notifier(&info->timer->pm_nb);
+		net_get_kernel_timestamp(&debug_ts);
 		kfree(info->timer->attr.attr.name);
 		kfree(info->timer);
 	} else {
