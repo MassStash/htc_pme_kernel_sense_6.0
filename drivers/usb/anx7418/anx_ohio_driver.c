@@ -269,6 +269,8 @@ int ohio_get_data_value(int data_member)
 			return ohio->emarker_flag;
 		case 7: 
 			return ohio->non_standard_flag;
+		case 8: 
+			return downstream_pd_cap;
 		default:
 			return -1;
 	}
@@ -1001,6 +1003,16 @@ void dfp_downgrade_usb20(void)
 }
 
 extern int usb_lock_speed;
+void usb_downgrade_func(void)
+{
+	ohio_debug_dump();
+	
+	if (ohio_get_data_value(OHIO_PMODE) == MODE_DFP && usb_lock_host_speed)
+		dfp_downgrade_usb20();
+	if (ohio_get_data_value(OHIO_PMODE) == MODE_UFP && usb_lock_speed)
+		ufp_switch_usb_speed(0);
+}
+
 void ohio_main_process(void)
 {
 	
@@ -1116,16 +1128,6 @@ exit:
 	pr_debug("%s: exit\n", __func__);
 }
 
-void usb_downgrade_func(void)
-{
-	ohio_debug_dump();
-	
-	if (ohio_get_data_value(OHIO_PMODE) == MODE_DFP && usb_lock_host_speed)
-		dfp_downgrade_usb20();
-	if (ohio_get_data_value(OHIO_PMODE) == MODE_UFP && usb_lock_speed)
-		ufp_switch_usb_speed(0);
-}
-
 extern int qpnp_boost_status(u8 *value);
 extern int qpnp_boost_int_status(u8 *value);
 static irqreturn_t ohio_intr_comm_isr(int irq, void *data)
@@ -1186,7 +1188,10 @@ static void drole_work_func(struct work_struct *work)
 		pr_info("data role change %d\n", (int)td->drole_on);
 		
 		
-
+		if (cable_connected == 0) {
+			pr_err("%s: cable out, should not do anything with event irq\n", __func__);
+			return;
+		}
 		mutex_lock(&td->drole_lock);
 		if (td->drole_on) {
 			dwc3_pd_drswap(DR_HOST);
@@ -1212,11 +1217,15 @@ static void ohio_work_func(struct work_struct *work)
 					       work.work);
 	printk("%s(%d): delay_work pending(%d)\n", __func__, __LINE__, delayed_work_pending(&td->work));
 
+	uint fake_irq_triggerred = 0;
+	u8 val;
+
 	cable_connected = confirmed_cable_det(td);
 	pr_info("%s : detect cable insertion/remove, cable_connected = %d\n",
 				__func__, cable_connected);
 	if (cable_connected == DONGLE_CABLE_INSERT) {
 		
+		td->fake_irq_counter = 0;
 		mutex_lock(&td->lock);
 		ohio_main_process();
 		mutex_unlock(&td->lock);
@@ -1224,6 +1233,27 @@ static void ohio_work_func(struct work_struct *work)
 		mutex_lock(&td->drole_lock);
 		cable_disconnect(td);
 		mutex_unlock(&td->drole_lock);
+	}
+	if (td->fake_irq_counter > MAX_DEB_FAKE_IRQ_COUNT) {
+		td->fake_irq_counter = 0;
+		fake_irq_triggerred = 1;
+	}
+	if (fake_irq_triggerred) {
+		queue_delayed_work(td->workqueue, &td->debounce_work, 500);
+		pr_info("%s %s : Disable cbl_det IRQ due to triggered fake interrupt\n",
+			LOG_TAG, __func__);
+	} else {
+		if (atomic_read(&cbl_det_irq_status)) {
+			atomic_set(&cbl_det_irq_status, 0);
+			enable_irq(td->cbl_det_irq);
+			pr_info("%s: Enable cbl_det IRQ\n", __func__);
+			mdelay(1);
+			if ((cable_connected != DONGLE_CABLE_REMOVE) &&
+				((val = gpio_get_value(td->pdata->gpio_cbl_det)) == DONGLE_CABLE_REMOVE)) {
+				pr_info("%s: cable might be removed. do disconnect\n", __func__);
+				cable_disconnect(td);
+			}
+		}
 	}
 }
 
@@ -1246,6 +1276,52 @@ static void ohio_debounce_work_func(struct work_struct *work)
 {
 	pr_info("%s : Enable cbl_det IRQ due to fake interrupt\n", __func__);
 }
+
+int workable_charging_cable(void)
+{
+	u8 val;
+	int ret;
+	struct ohio_data *ohio = NULL;
+
+	if(ohio_client)
+		ohio = i2c_get_clientdata(ohio_client);
+	else
+		return -ENODEV;
+
+	if (atomic_read(&ohio_power_status) == 1) {
+		ret = ohio_read_reg(OHIO_SLVAVE_I2C_ADDR, NEW_CC_STATUS, &val);
+		if (ret < 0) {
+			pr_err("%s: i2c fail\n", __func__);
+			return 2;
+		}
+		else {
+			pr_info("%s: cc_status = 0x%02X\n", __func__, val);
+			switch (val) {
+				case 0x00:
+					pr_err("%s: cable out\n", __func__);
+					return -1;
+				case 0x04:
+				case 0x40:
+				case 0x08:
+				case 0x80:
+					pr_info("%s: workable cable\n", __func__);
+					return 1;
+				case 0x0c:
+				case 0xc0:
+					pr_err("%s: illegal cable\n", __func__);
+					return 0;
+				default:
+					pr_err("%s: unknown status\n", __func__);
+					return -1;
+			}
+		}
+	}
+	else {
+		pr_info("%s: power not ready\n", __func__);
+		return 2;
+	}
+}
+EXPORT_SYMBOL(workable_charging_cable);
 
 #ifdef CONFIG_OF
 int __maybe_unused ohio_regulator_configure(struct device *dev,

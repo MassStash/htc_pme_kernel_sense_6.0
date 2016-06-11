@@ -45,6 +45,9 @@
 printk(KERN_INFO "[BATT] " x); \
 } while (0)
 
+#define CONFIG_HTC_BATT_WA_PCN0017 
+#define CONFIG_HTC_BATT_WA_PCN0021 
+
 #define BATT_ERR(x...) do { \
 struct timespec ts; \
 struct rtc_time tm; \
@@ -182,10 +185,9 @@ struct htc_battery_info {
 	int overload_curr_thr_ma;
 	struct wake_lock charger_exist_lock;
 	struct delayed_work chg_full_check_work;
-#ifdef CONFIG_HTC_BATT_PCN0022
+#ifdef CONFIG_HTC_CHARGER
 	struct delayed_work is_usb_overheat_work;
 #endif 
-#ifdef CONFIG_HTC_BATT_PCN0017
 	struct delayed_work chk_unknown_chg_work;
 #endif 
 #ifdef CONFIG_HTC_BATT_PCN0018
@@ -325,9 +327,13 @@ void pmi8994_set_batt_health_good(void);
 void pmi8994_rerun_apsd(void);
 bool is_otg_enabled(void);
 int pmi8996_get_chgr_sts(void);
-#ifdef CONFIG_HTC_BATT_PCN0022
+void force_dump_fg_sram(void);
+#ifdef CONFIG_HTC_BATT_WA_PCN0021
+void pmi8996_set_dcp_default(void);
+#endif 
+
+#ifdef CONFIG_HTC_CHARGER
 int pm8996_get_usb_temp(void);
+bool htc_battery_get_discharging_reason(void);
 #endif 
-#ifdef CONFIG_HTC_BATT_PCN0002
 bool get_ima_error_status(void);
-#endif 

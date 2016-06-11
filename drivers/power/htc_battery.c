@@ -88,14 +88,12 @@ unsigned int g_batt_first_use_time;
 unsigned int g_batt_cycle_checksum;
 #endif 
 
-
-#ifdef CONFIG_HTC_BATT_PCN0022
+#ifdef CONFIG_HTC_CHARGER
 static bool g_usb_overheat = false;
 static int g_usb_overheat_check_count = 0;
 static int g_usb_temp = 0;
 #endif 
 
-#ifdef CONFIG_HTC_BATT_PCN0018
 static bool gs_measure_cable_impedance = true;
 static int gs_R_cable_impedance = 0;
 static int gs_cable_impedance = 0; 	
@@ -105,10 +103,7 @@ static int gs_prev_charging_enabled = 0;
 
 #ifdef CONFIG_HTC_BATT_PCN0001
 static bool g_is_rep_level_ready = true;
-#endif 
-#ifdef CONFIG_HTC_BATT_PCN0002
 static bool g_is_consistent_level_ready = false;
-#endif 
 
 #ifdef CONFIG_HTC_BATT_PCN0020
 static bool g_is_pd_charger = false;
@@ -479,7 +474,6 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 			htc_batt_info.rep.level = htc_batt_info.prev.level;
 			s_store_level += drop_raw_level;
 
-#ifdef CONFIG_HTC_BATT_PCN0002
 			g_is_consistent_level_ready = true;
 			change_level_by_consistent_and_store_into_emmc(0);
 #endif 
@@ -729,7 +723,6 @@ static void batt_level_adjust(unsigned long time_since_last_update_ms)
 		htc_batt_info.rep.level = 0;
 	}
 
-#ifdef CONFIG_HTC_BATT_PCN0002
 	g_is_consistent_level_ready = true;
 	change_level_by_consistent_and_store_into_emmc(0);
 #endif 
@@ -1007,16 +1000,14 @@ int htc_batt_schedule_batt_info_update(void)
         return 0;
 }
 
-
-#ifdef CONFIG_HTC_BATT_PCN0022
+#ifdef CONFIG_HTC_CHARGER
 #define USB_OVERHEAT_CHECK_PERIOD_MS 30000
 static void is_usb_overheat_worker(struct work_struct *work)
 {
-        int usb_pwr_temp;
+        int usb_pwr_temp = pm8996_get_usb_temp();
         static int last_usb_pwr_temp = 0;
         if (g_latest_chg_src > POWER_SUPPLY_TYPE_UNKNOWN) {
                 if(!g_usb_overheat){
-                        usb_pwr_temp = pm8996_get_usb_temp();
                         BATT_LOG("USB CONN Temp = %d\n",usb_pwr_temp);
 			g_usb_temp = usb_pwr_temp;
                         if(usb_pwr_temp > 650)
@@ -1024,8 +1015,8 @@ static void is_usb_overheat_worker(struct work_struct *work)
                         if(g_usb_overheat_check_count == 0)
                                 last_usb_pwr_temp = usb_pwr_temp;
                         else{
-				if(((usb_pwr_temp - last_usb_pwr_temp) > 300) &&( g_usb_overheat_check_count <= 6))
-					g_usb_overheat = true;
+                                if(((usb_pwr_temp - last_usb_pwr_temp) > 300) &&( g_usb_overheat_check_count <= 6))
+                                        g_usb_overheat = true;
                         }
                 }
                 g_usb_overheat_check_count++;
@@ -1045,7 +1036,6 @@ static void is_usb_overheat_worker(struct work_struct *work)
 }
 #endif 
 
-#ifdef CONFIG_HTC_BATT_PCN0018
 static void cable_impedance_worker(struct work_struct *work)
 {
 	int R_HW_MB_Impedance = 115;
@@ -1199,7 +1189,7 @@ endWorker:
 #define CHG_UNKNOWN_CHG_PERIOD_MS	9000
 #ifdef CONFIG_HTC_BATT_WA_PCN0013
 #define VBUS_VALID_THRESHOLD			4250000
-#endif 
+extern bool get_connect2pc(void);
 static void batt_worker(struct work_struct *work)
 {
 	static int s_first = 1;
@@ -1211,7 +1201,8 @@ static void batt_worker(struct work_struct *work)
 #endif 
 #ifdef CONFIG_HTC_BATT_WA_PCN0011
 	static int s_hvdcp_no_chg_cnt = 0;
-#endif 
+	static int s_cc_uah_stored = 0;
+	static int s_prev_level_raw = 0;
 	int pwrsrc_enabled = s_prev_pwrsrc_enabled;
 	int charging_enabled = gs_prev_charging_enabled;
 	int user_set_chg_curr = s_prev_user_set_chg_curr;
@@ -1226,10 +1217,15 @@ static void batt_worker(struct work_struct *work)
 #endif 
 	unsigned long time_since_last_update_ms;
 	unsigned long cur_jiffies;
+	int cc_uah_now;
+	char chg_strbuf[20];
 	
 	char *chr_src[] = {"NONE", "BATTERY", "UPS", "MAINS", "USB",
 		"AC(USB_DCP)", "USB_CDP", "USB_ACA", "USB_HVDCP","USB_HVDCP_3",
 		"WIRELESS","BMS","USB_PARALLEL","WIPOWER"};
+#ifdef CONFIG_HTC_BATT_WA_PCN0021
+	struct timespec xtime = ktime_to_timespec(ktime_get());
+#endif 
 
 	
 	cur_jiffies = jiffies;
@@ -1322,7 +1318,7 @@ static void batt_worker(struct work_struct *work)
 			
 			if ((htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB)) {
 				s_prev_user_set_chg_curr = get_property(htc_batt_info.usb_psy, POWER_SUPPLY_PROP_CURRENT_MAX);
-				if (s_prev_user_set_chg_curr == 0) {
+				if (!get_connect2pc() && !g_rerun_apsd_done && !g_is_unknown_charger) {
 					user_set_chg_curr = 150000;
 #ifdef CONFIG_HTC_BATT_PCN0017
 					if (delayed_work_pending(&htc_batt_info.chk_unknown_chg_work))
@@ -1331,6 +1327,8 @@ static void batt_worker(struct work_struct *work)
 							msecs_to_jiffies(CHG_UNKNOWN_CHG_PERIOD_MS));
 #endif 
 				} else {
+					if (s_prev_user_set_chg_curr < SLOW_CHARGE_CURR)
+						s_prev_user_set_chg_curr = SLOW_CHARGE_CURR;
 					user_set_chg_curr = s_prev_user_set_chg_curr;
 				}
 			} else if (htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB_HVDCP){
@@ -1351,7 +1349,7 @@ static void batt_worker(struct work_struct *work)
 			g_pwrsrc_dis_reason |= HTC_BATT_PWRSRC_DIS_BIT_MFG;
 		else
 			g_pwrsrc_dis_reason &= ~HTC_BATT_PWRSRC_DIS_BIT_MFG;
-#ifdef CONFIG_HTC_BATT_PCN0022
+#ifdef CONFIG_HTC_CHARGER
 		if (g_usb_overheat){
 			g_chg_dis_reason |= HTC_BATT_CHG_DIS_BIT_USB_OVERHEAT;
 			g_pwrsrc_dis_reason |= HTC_BATT_PWRSRC_DIS_BIT_USB_OVERHEAT;
@@ -1459,13 +1457,11 @@ static void batt_worker(struct work_struct *work)
 #endif 
 #ifdef CONFIG_HTC_BATT_WA_PCN0011
 			s_hvdcp_no_chg_cnt = 0;
-#endif 
-#ifdef CONFIG_HTC_BATT_PCN0022
+#ifdef CONFIG_HTC_CHARGER
 			g_usb_overheat = false;
 			g_usb_overheat_check_count = 0;
 			g_usb_temp = 0;
 #endif 
-#ifdef CONFIG_HTC_BATT_PCN0020
 			if(s_first){
 				pr_info("ignore the fist time on boot.\n");
 			}else{
@@ -1473,14 +1469,13 @@ static void batt_worker(struct work_struct *work)
 				g_pd_voltage = 0;
 				g_pd_current = 0;
 			}
-#endif 
 			power_supply_set_current_limit(htc_batt_info.usb_psy, 0);
-#ifdef CONFIG_HTC_BATT_PCN0017
-			g_is_unknown_charger = false;
-			g_rerun_apsd_done = false;
-			if (delayed_work_pending(&htc_batt_info.chk_unknown_chg_work))
-				cancel_delayed_work(&htc_batt_info.chk_unknown_chg_work);
-#endif 
+			if ((htc_batt_info.vbus/1000) < 4250){
+				g_is_unknown_charger = false;
+				g_rerun_apsd_done = false;
+				if (delayed_work_pending(&htc_batt_info.chk_unknown_chg_work))
+					cancel_delayed_work(&htc_batt_info.chk_unknown_chg_work);
+			}
 		}
 	}
 
@@ -1593,6 +1588,8 @@ static void batt_worker(struct work_struct *work)
 #endif 
 #ifdef CONFIG_HTC_BATT_PCN0016
 		"htcchg=%d,"
+		"usb_temp=%d,"
+		"usb_overheat=%d,"
 #endif 
 #ifdef CONFIG_HTC_BATT_PCN0022
 		"usb_temp=%d,"
@@ -1629,6 +1626,8 @@ static void batt_worker(struct work_struct *work)
 #endif 
 #ifdef CONFIG_HTC_BATT_PCN0016
 		htc_batt_info.rep.is_htcchg_ext_mode,
+		g_usb_temp,
+		g_usb_overheat? 1 : 0,
 #endif 
 #ifdef CONFIG_HTC_BATT_PCN0022
 		g_usb_temp,
@@ -1656,8 +1655,12 @@ static void batt_worker(struct work_struct *work)
 			pmi8994_rerun_apsd();
 		}
 	}
+
+#ifdef CONFIG_HTC_BATT_WA_PCN0021
+	if ((xtime.tv_sec > 120) && (htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_USB_DCP))
+		pmi8996_set_dcp_default();
 #endif 
-#ifdef CONFIG_HTC_BATT_WA_PCN0011
+
 	
 	if ((pmi8996_get_chgr_sts()==0x80) && (g_pwrsrc_dis_reason == 0) &&
 		((htc_batt_info.rep.batt_temp > 0) &&(htc_batt_info.rep.batt_temp < 550))){
@@ -1674,7 +1677,24 @@ static void batt_worker(struct work_struct *work)
 	}else{
 		s_hvdcp_no_chg_cnt = 0;
 	}
-#endif 
+
+	
+	cc_uah_now = get_property(htc_batt_info.bms_psy, POWER_SUPPLY_PROP_CHARGE_NOW_RAW)/1000;
+	if((s_prev_level_raw == 0) || (s_prev_level_raw != htc_batt_info.rep.level_raw)){
+		s_prev_level_raw = htc_batt_info.rep.level_raw;
+		s_cc_uah_stored = cc_uah_now;
+	} else {
+		
+		
+		if ((htc_batt_info.rep.charging_source == POWER_SUPPLY_TYPE_UNKNOWN) &&
+			(s_prev_level_raw == htc_batt_info.rep.level_raw) &&
+			((s_cc_uah_stored - cc_uah_now) >= 150)){
+				BATT_EMBEDDED("Raw level stuck, dump fg sram\n");
+				force_dump_fg_sram();
+				s_cc_uah_stored = cc_uah_now;
+		}
+	}
+
 	wake_unlock(&htc_batt_timer.battery_lock);
 
 }
@@ -1743,8 +1763,6 @@ static void chg_full_check_worker(struct work_struct *work)
 }
 #endif 
 
-#ifdef CONFIG_HTC_BATT_PCN0017
-extern bool get_connect2pc(void);
 #define CHK_UNKNOWN_CHG_RERUN_APSD_PERIOD_MS	3000
 static void chk_unknown_chg_worker(struct work_struct *work)
 {
@@ -1756,31 +1774,27 @@ static void chk_unknown_chg_worker(struct work_struct *work)
 	}
 
 	current_max_now = get_property(htc_batt_info.usb_psy, POWER_SUPPLY_PROP_CURRENT_MAX);
-	if (current_max_now < SLOW_CHARGE_CURR) {
+	if (!get_connect2pc()) {
 		if (g_rerun_apsd_done) {
-			if (get_connect2pc())
-				BATT_EMBEDDED("set charging_current(%d), PC connected", SLOW_CHARGE_CURR);
-			else {
-				BATT_EMBEDDED("set charging_current(%d), UNKNOWN CHARGER", SLOW_CHARGE_CURR);
-				g_is_unknown_charger = true;
-			}
+			BATT_EMBEDDED("set charging_current(%d), UNKNOWN CHARGER", SLOW_CHARGE_CURR);
+			g_is_unknown_charger = true;
 			power_supply_set_current_limit(htc_batt_info.usb_psy, SLOW_CHARGE_CURR);
 			g_rerun_apsd_done = false;
 			update_htc_chg_src();
 			update_htc_extension_state();
 			return;
 		}
-		if (get_connect2pc()){
-			power_supply_set_current_limit(htc_batt_info.usb_psy, SLOW_CHARGE_CURR);
-			BATT_EMBEDDED("set charging_current(%d), PC connected", SLOW_CHARGE_CURR);
-			return;
-		}
 		BATT_EMBEDDED("rerun APSD");
 		pmi8994_rerun_apsd();
 		g_rerun_apsd_done = true;
+		if (delayed_work_pending(&htc_batt_info.chk_unknown_chg_work))
+			cancel_delayed_work(&htc_batt_info.chk_unknown_chg_work);
 		schedule_delayed_work(&htc_batt_info.chk_unknown_chg_work,
 							msecs_to_jiffies(CHK_UNKNOWN_CHG_RERUN_APSD_PERIOD_MS));
 	} else {
+		if (current_max_now < SLOW_CHARGE_CURR)
+			current_max_now = SLOW_CHARGE_CURR;
+		BATT_EMBEDDED("set charging_current(%d), PC connected", current_max_now);
 		g_rerun_apsd_done = false;
 		power_supply_set_current_limit(htc_batt_info.usb_psy, current_max_now);
 	}
@@ -2014,9 +2028,11 @@ void htc_battery_info_update(enum power_supply_property prop, int intval)
 						schedule_delayed_work(&htc_batt_info.chg_full_check_work,0);
  					}
 				}
-#ifdef CONFIG_HTC_BATT_PCN0022
-				if(!delayed_work_pending(&htc_batt_info.is_usb_overheat_work)) {
-					schedule_delayed_work(&htc_batt_info.is_usb_overheat_work, 0);
+#ifdef CONFIG_HTC_CHARGER
+				if (!g_flag_keep_charge_on){
+					if(!delayed_work_pending(&htc_batt_info.is_usb_overheat_work)) {
+						schedule_delayed_work(&htc_batt_info.is_usb_overheat_work, 0);
+					}
 				}
 #endif 
 			}
@@ -2200,6 +2216,13 @@ static ssize_t htc_battery_charger_switch(struct device *dev,
 
     return count;
 }
+
+#ifdef CONFIG_HTC_CHARGER
+bool htc_battery_get_discharging_reason(void)
+{
+	return g_chg_dis_reason;
+}
+#endif
 
 static ssize_t htc_battery_set_phone_call(struct device *dev,
                 struct device_attribute *attr,
@@ -2387,7 +2410,7 @@ static ssize_t htc_battery_show_htc_extension_attr(struct device *dev,
 	return sprintf(buf, "%d\n", htc_batt_info.htc_extension);;
 }
 
-#ifdef CONFIG_HTC_BATT_PCN0022
+#ifdef CONFIG_HTC_CHARGER
 static ssize_t htc_battery_show_usb_overheat(struct device *dev,
                 struct device_attribute *attr,
                 char *buf)
@@ -2396,7 +2419,6 @@ static ssize_t htc_battery_show_usb_overheat(struct device *dev,
 }
 #endif 
 
-#ifdef CONFIG_HTC_BATT_PCN0009
 static ssize_t htc_battery_show_batt_attr(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -2535,9 +2557,8 @@ static struct device_attribute htc_battery_attrs[] = {
 	__ATTR(batt_temp, S_IRUGO, htc_battery_temp, NULL),
 #ifdef CONFIG_HTC_BATT_PCN0014
 	__ATTR(batt_state, S_IRUGO, htc_battery_state, NULL),
-#endif 
-#ifdef CONFIG_HTC_BATT_PCN0022
-	__ATTR(usb_overheat, S_IRUGO, htc_battery_show_usb_overheat, NULL),
+#ifdef CONFIG_HTC_CHARGER
+        __ATTR(usb_overheat, S_IRUGO, htc_battery_show_usb_overheat, NULL),
 #endif 
 };
 
@@ -2759,11 +2780,9 @@ static int htc_battery_probe(struct platform_device *pdev)
 #endif 
 #ifdef CONFIG_HTC_BATT_PCN0001
 	INIT_DELAYED_WORK(&htc_batt_info.chg_full_check_work, chg_full_check_worker);
-#endif 
-#ifdef CONFIG_HTC_BATT_PCN0022
+#ifdef CONFIG_HTC_CHARGER
 	INIT_DELAYED_WORK(&htc_batt_info.is_usb_overheat_work, is_usb_overheat_worker);
-#endif 
-#ifdef CONFIG_HTC_BATT_PCN0017
+#endif
 	INIT_DELAYED_WORK(&htc_batt_info.chk_unknown_chg_work, chk_unknown_chg_worker);
 #endif 
 	init_timer(&htc_batt_timer.batt_timer);
