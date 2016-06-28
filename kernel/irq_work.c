@@ -84,27 +84,6 @@ EXPORT_SYMBOL_GPL(irq_work_queue_on);
 #endif
 
 /* Enqueue the irq work @work on the current CPU */
-void irq_work_queue(struct irq_work *work)
-{
-	/* All work should have been flushed before going offline */
-	WARN_ON_ONCE(cpu_is_offline(cpu));
-
-	/* Arch remote IPI send/receive backend aren't NMI safe */
-	WARN_ON_ONCE(in_nmi());
-
-	/* Only queue if not already pending */
-	if (!irq_work_claim(work))
-		return false;
-
-	if (llist_add(&work->llnode, &per_cpu(raised_list, cpu)))
-		arch_send_call_function_single_ipi(cpu);
-
-	return true;
-}
-EXPORT_SYMBOL_GPL(irq_work_queue_on);
-#endif
-
-/* Enqueue the irq work @work on the current CPU */
 bool irq_work_queue(struct irq_work *work)
 {
 	/* Only queue if not already pending */
