@@ -3870,14 +3870,20 @@ static int smbchg_otg_regulator_enable(struct regulator_dev *rdev)
 	chip->otg_retries = 0;
 	chip->chg_otg_enabled = true;
 	smbchg_icl_loop_disable_check(chip);
+#ifndef CONFIG_HTC_BATT_WA_PCN0012
 	smbchg_otg_pulse_skip_disable(chip, REASON_OTG_ENABLED, true);
+#else
+	smbchg_otg_pulse_skip_disable(chip, REASON_OTG_ENABLED, false);
+#endif 
 
 	
 	if (chip->otg_pinctrl)
 		return rc;
 
+#ifndef CONFIG_HTC_BATT_WA_PCN0012
 	
 	msleep(20);
+#endif 
 	rc = smbchg_masked_write(chip, chip->bat_if_base + CMD_CHG_REG,
 			OTG_EN_BIT, OTG_EN_BIT);
 	if (rc < 0)
@@ -9298,6 +9304,16 @@ bool is_otg_enabled(void)
 		return true;
 	else
 		return false;
+}
+
+bool usb_otg_pulse_skip_control(bool disable)
+{
+        if(!the_chip) {
+                pr_err("called before init\n");
+                return false;
+        }
+	smbchg_otg_pulse_skip_disable(the_chip, REASON_OTG_ENABLED, disable);
+	return true;
 }
 
 #define CHG_SFT_RT_STS		BIT(3)

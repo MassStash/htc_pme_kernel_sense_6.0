@@ -341,3 +341,5 @@ int pm8996_get_usb_temp(void);
 #ifdef CONFIG_HTC_BATT_PCN0002
 bool get_ima_error_status(void);
 #endif 
+
+bool usb_otg_pulse_skip_control(bool disable);

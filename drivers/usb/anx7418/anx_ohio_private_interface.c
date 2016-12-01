@@ -1150,12 +1150,16 @@ void pd_vbus_control_default_func(bool on)
 		ohio_set_data_value(OHIO_PMODE, MODE_DFP);
 		enable_oc_work_func();
 		dwc3_pd_vbus_ctrl(1);
-		mdelay(2);
+		mdelay(5);
 		vbus_mv = pmi8994_get_usbin_voltage_now()/1000;
 		pr_debug("%s: vbus voltage (%d mv)\n", __func__, vbus_mv);
 		if (vbus_mv < 3500) {
 			pr_info("%s: Disable boost 5v due to abnormal vbus voltage (%d mv)\n", __func__, vbus_mv);
 			dwc3_pd_vbus_ctrl(0);
+		}
+		else {
+			
+			usb_otg_pulse_skip_control(1);
 		}
 
 		status = OhioReadReg(NEW_CC_STATUS);
